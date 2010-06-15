@@ -1,15 +1,51 @@
+;; GOSSIP GROUP CODE
+;; SFI CSSS 2010
+
+;; GLOBAL TODO 1: have a table of how far from the truth you are.  
+;; How to do this was discussed on 06/14/10 so that the agent doesn't actually know how close to the truth their value actually is
+
+;; GLOBAL TODO 2: Add decision rules
+
+;; GLOBAL TODO 3: Add fitness rules
+
+;;NOTE ABOUT CODE:
+;; "TODO:" means something we need to do before we can run the model
+;; "TODO: (distant in future)" means something we want to do but should be one of the very last things done
+
+;;Changes from 06/14/10: 
+;;;; Threshold determines when message stops propagating by agents
+;;;; Weight of message (based on previous weights) is passed to reciever of message
+;;;; Initialization of agents and becoming uninformed are separated; one is used for setting up, one is used after propagating a message
+;;;; Weight of message that is sent is based on weight received with message and weight on link between the nodes
+;;;; Simulation ends once no more messages are being sent (determined by use of global_sent? variable)
+;;;; Written TODO notes throughout functions so we know where we need to make additional changes
+;;;; Added comments
+
+;;OUR AGENTS
 turtles-own
 [
   informed?           ;; if true, the turtle has the gossip
   liar?               ;; if true, the turtle is a liar
   truth?              ;; if true, our gossip is true
+  receivedweight      ;; value for weight received from message
+  threshold           ;; threshold for when to stop sending
 ]
 
+;;GLOBAL VARIABLES
+globals
+[
+  global_sent?        ;; is true if any message was sent in previous tick, false if no message was sent in previous tick (so therefore no more will be sent)
+]
+
+;;PROPERTY OF LINKS BETWEEN NODES
 links-own
 [
   weight              ;; links are weighted
 ]
 
+;; Creates links between specified nodes with a random weight
+;; Creates thickness for display of node based on weight
+;;TODO: (distant in future) have the weight of the link based on personal likelihood of spreading gossip
 to create-random-link-with [anode]
   create-link-with anode [
     set weight random-float 1.0
@@ -19,25 +55,29 @@ end
 
 to setup
   clear-all
+  set global_sent? true ; need to be true so that first time through loop will work
   setup-nodes
   setup-spatially-clustered-network
   ask n-of initial-observer-count turtles
-    [ become-informed true ]
+    [ become-informed true 1]
   ask n-of initial-liar-count turtles
     [ become-liar ]
   update-plot
 end
 
+;; set up all nodes, including initializing their agent values
 to setup-nodes
   set-default-shape turtles "circle"
   crt number-of-nodes
   [
     ; for visual reasons, we don't put any nodes *too* close to the edges
     setxy (random-xcor * 0.95) (random-ycor * 0.95)
-    become-uninformed
+    ;become-uninformed
+    initialize ; this function is only called to set things in setup
   ]
 end
 
+;; TODO: make a specific type of network
 to setup-spatially-clustered-network
   let num-links (average-node-degree * number-of-nodes) / 2
   while [count links < num-links ]
@@ -56,8 +96,20 @@ to setup-spatially-clustered-network
   ]
 end
 
+; should be called when setting up for a new event, and only then
+; should be called before nodes are defined as observers
+to initialize
+  set informed? false
+  set liar? false
+  set color white
+  set receivedweight 1.0
+  set threshold 0.25
+end
+
+; runs the entire program until messages are no longer being sent
+; TODO: (distant in future) have it loop with creation of new events after old event dies AND fitness has been calculated
 to go
-  if all? turtles [informed?]
+  if not global_sent? ; only stop when no messages were sent during the last tick
     [ stop ]
   ask turtles
   [
@@ -68,38 +120,55 @@ to go
   update-plot
 end
 
-
-to become-uninformed ;; turtle procedure
+; called for a node after it has passed on its information
+to become-uninformed ;; turtle procedure for end of each message send (reset to uninformed to mean that we no longer have to send a message)
   set informed? false
-  set liar? false
-  set color white
 end
 
+; used during initialization only
 to become-liar
   set liar? true
   set shape "square"
 end
 
-to become-informed [ truth ];; turtle procedure
+; used when you receive a message
+; TODO: need the receivedweight to be related to all messages received during a given timestep
+to become-informed [ truth passweight ];; turtle procedure
   set informed? true
   set truth? truth
+  set receivedweight passweight
   ifelse truth
     [ set color green ]
     [ set color red ]
 end
 
+; all turtles with messages will send them to neighbors based on the weight and threshold
+; TODO: need truth to be related to scale of truthiness
 to spread-gossip
+  set global_sent? false ; initialize to false at beginning of each tick
   ask turtles with [informed?]
-    [ ask link-neighbors with [not informed?]
+    [ ask link-neighbors ;;with [not informed?]
       [
-        let thisweight [weight] of link-with myself
+        ; first find the weight of the link, then find that weight multiplied by the sender's receivedweight
+        let s [weight] of link-with myself
+        let thisweight (([receivedweight] of myself) * s)
+        ; if the weight shows that we should send the message based on using it as a probability
+        ; and the weight is also above the threshold of when to no longer send,
+        ; send to the neighbor (truth value based on state as liar) 
         if random-float 1.0 < (thisweight)
         [
-          ifelse ([liar?] of myself)
-            [ become-informed [not truth?] of myself ]
-            [ become-informed [truth?] of myself ]
+          if threshold < (thisweight)
+          [
+            set global_sent? true ; set to true so globally we know at least 1 message was propagated
+            ; send your weighted message as either true or false based on liar
+            ; TODO: this will change based on truth table
+            ifelse ([liar?] of myself)
+              [ become-informed [not truth?] of myself thisweight]
+              [ become-informed [truth?] of myself thisweight]
+          ]
         ]
       ]
+      become-uninformed ; since has sent message, don't want to resend next time
     ]
 end
 
@@ -228,7 +297,7 @@ average-node-degree
 average-node-degree
 1
 number-of-nodes - 1
-6
+7
 1
 1
 NIL
@@ -259,24 +328,94 @@ initial-liar-count
 initial-liar-count
 0
 number-of-nodes
-6
+30
 1
 1
 NIL
 HORIZONTAL
 
 @#$#@#$#@
-GOSSIP
--------
+WHAT IS IT?
+-----------
+This model demonstrates the spread of a virus through a network.  Although the model is somewhat abstract, one interpretation is that each node represents a computer, and we are modeling the progress of a computer virus (or worm) through this network.  Each node may be in one of three states:  susceptible, infected, or resistant.  In the academic literature such a model is sometimes referred to as an SIR model for epidemics.
 
-   "Honesty is such a lonely word."
 
-How do norms of strategic truth and lie telling evolve?
+HOW IT WORKS
+-----------
+Each time step (tick), each infected node (colored red) attempts to infect all of its neighbors.  Susceptible neighbors (colored green) will be infected with a probability given by the VIRUS-SPREAD-CHANCE slider.  This might correspond to the probability that someone on the susceptible system actually executes the infected email attachment.
+Resistant nodes (colored gray) cannot be infected.  This might correspond to up-to-date antivirus software and security patches that make a computer immune to this particular virus.
 
-Fun payoff functions:
+Infected nodes are not immediately aware that they are infected.  Only every so often (determined by the VIRUS-CHECK-FREQUENCY slider) do the nodes check whether they are infected by a virus.  This might correspond to a regularly scheduled virus-scan procedure, or simply a human noticing something fishy about how the computer is behaving.  When the virus has been detected, there is a probability that the virus will be removed (determined by the RECOVERY-CHANCE slider).
 
-* give everyone a secret preference
-* payoff shared by folks who work out the truth
+If a node does recover, there is some probability that it will become resistant to this virus in the future (given by the GAIN-RESISTANCE-CHANCE slider).
+
+When a node becomes resistant, the links between it and its neighbors are darkened, since they are no longer possible vectors for spreading the virus.
+
+
+HOW TO USE IT
+-------------
+Using the sliders, choose the NUMBER-OF-NODES and the AVERAGE-NODE-DEGREE (average number of links coming out of each node).
+
+The network that is created is based on proximity (Euclidean distance) between nodes.  A node is randomly chosen and connected to the nearest node that it is not already connected to.  This process is repeated until the network has the correct number of links to give the specified average node degree.
+
+The INITIAL-OUTBREAK-SIZE slider determines how many of the nodes will start the simulation infected with the virus.
+
+Then press SETUP to create the network.  Press GO to run the model.  The model will stop running once the virus has completely died out.
+
+The VIRUS-SPREAD-CHANCE, VIRUS-CHECK-FREQUENCY, RECOVERY-CHANCE, and GAIN-RESISTANCE-CHANCE sliders (discussed in "How it Works" above) can be adjusted before pressing GO, or while the model is running.
+
+The NETWORK STATUS plot shows the number of nodes in each state (S, I, R) over time.
+
+
+THINGS TO NOTICE
+--------------------
+At the end of the run, after the virus has died out, some nodes are still susceptible, while others have become immune.  What is the ratio of the number of immune nodes to the number of susceptible nodes?  How is this affected by changing the AVERAGE-NODE-DEGREE of the network?
+
+
+THINGS TO TRY
+-------------
+Set GAIN-RESISTANCE-CHANCE to 0%.  Under what conditions will the virus still die out?   How long does it take?  What conditions are required for the virus to live?  If the RECOVERY-CHANCE is bigger than 0, even if the VIRUS-SPREAD-CHANCE is high, do you think that if you could run the model forever, the virus could stay alive?
+
+
+EXTENDING THE MODEL
+-------------------
+The real computer networks on which viruses spread are generally not based on spatial proximity, like the networks found in this model.  Real computer networks are more often found to exhibit a "scale-free" link-degree distribution, somewhat similar to networks created using the Preferential Attachment model.  Try experimenting with various alternative network structures, and see how the behavior of the virus differs.
+
+Suppose the virus is spreading by emailing itself out to everyone in the computer's address book.  Since being in someone's address book is not a symmetric relationship, change this model to use directed links instead of undirected links.
+
+Can you model multiple viruses at the same time?  How would they interact?  Sometimes if a computer has a piece of malware installed, it is more vulnerable to being infected by more malware.
+
+Try making a model similar to this one, but where the virus has the ability to mutate itself.  Such self-modifying viruses are a considerable threat to computer security, since traditional methods of virus signature identification may not work against them.  In your model, nodes that become immune may be reinfected if the virus has mutated to become significantly different than the variant that originally infected the node.
+
+
+RELATED MODELS
+--------------
+Virus, Disease, Preferential Attachment, Diffusion on a Directed Network
+
+
+NETLOGO FEATURES
+----------------
+Links are used for modeling the network.  The LAYOUT-SPRING primitive is used to position the nodes and links such that the structure of the network is visually clear.
+
+
+HOW TO CITE
+-----------
+If you mention this model in an academic publication, we ask that you include these citations for the model itself and for the NetLogo software:
+- Stonedahl, F. and Wilensky, U. (2008).  NetLogo Virus on a Network model.  http://ccl.northwestern.edu/netlogo/models/VirusonaNetwork.  Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.
+- Wilensky, U. (1999). NetLogo. http://ccl.northwestern.edu/netlogo/. Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.
+
+In other publications, please use:
+- Copyright 2008 Uri Wilensky. All rights reserved. See http://ccl.northwestern.edu/netlogo/models/VirusonaNetwork for terms of use.
+
+
+COPYRIGHT NOTICE
+----------------
+Copyright 2008 Uri Wilensky. All rights reserved.
+
+Permission to use, modify or redistribute this model is hereby granted, provided that both of the following requirements are followed:
+a) this copyright notice is included.
+b) this model will not be redistributed for profit without permission from Uri Wilensky. Contact Uri Wilensky for appropriate licenses for redistribution for profit.
+
 @#$#@#$#@
 default
 true
