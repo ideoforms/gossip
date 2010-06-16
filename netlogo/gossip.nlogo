@@ -30,6 +30,7 @@ turtles-own
   truth?              ;; if true, our gossip is true
   receivedweight      ;; value for weight received from message
   threshold           ;; threshold for when to stop sending
+  fitness             ;; accumulated fitness (or perhaps "wealth")
 ]
 
 ;;GLOBAL VARIABLES
@@ -105,6 +106,7 @@ to initialize
   set liar? false
   set receivedweight 1.0
   set threshold 0.25
+  set fitness 0.0
   forget
 end
 
@@ -136,7 +138,7 @@ to go
     tick
     update-plot
   ]
-  ;update fitness ?
+  update-fitnesses
   if not repeat_events? [ stop ]
 end
 
@@ -202,6 +204,22 @@ to update-plot
   plot (count turtles with [ truth? and has_belief? ]) / (count turtles) * 100
 end
 
+; calculate everyone's fitness and update
+; TODO: have different payoffs for liars and truth-tellers
+; TODO: base it on the mean fitness
+to update-fitnesses
+  ask turtles with [has_belief?] [
+    set fitness (fitness + (truthiness truth?))
+    set size (fitness * 0.1 + 1.0)
+  ]
+end
+
+; report the distance of an individual belief from truth. Easy when it's binary!
+to-report truthiness [belief?]
+  ifelse belief?
+    [ report 1.0 ]
+    [ report -1.0 ]
+end
 @#$#@#$#@
 GRAPHICS-WINDOW
 265
