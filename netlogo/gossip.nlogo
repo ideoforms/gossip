@@ -24,7 +24,8 @@
 ;;OUR AGENTS
 turtles-own
 [
-  informed?           ;; if true, the turtle has the gossip
+  informed?           ;; if true, the turtle has the gossip in this turn
+  has_belief?         ;; if true, the turtle has an opinion on the truth
   liar?               ;; if true, the turtle is a liar
   truth?              ;; if true, our gossip is true
   receivedweight      ;; value for weight received from message
@@ -110,6 +111,8 @@ end
 ; should be called when setting up for a new event, and only then
 to forget
   set informed? false
+  set truth? false
+  set has_belief? false
   set color white
 end
 
@@ -183,6 +186,7 @@ to spread-gossip
             ifelse ([liar?] of myself)
               [ become-informed [not truth?] of myself thisweight]
               [ become-informed [truth?] of myself thisweight]
+            set has_belief? true
           ]
         ]
       ]
@@ -191,9 +195,11 @@ to spread-gossip
 end
 
 to update-plot
-  set-current-plot "Network Status"
-  set-current-plot-pen "informed"
-  plot (count turtles with [informed?]) / (count turtles) * 100
+  set-current-plot "believers"
+  set-current-plot-pen "has_belief"
+  plot (count turtles with [has_belief?]) / (count turtles) * 100
+  set-current-plot-pen "true_belief"
+  plot (count turtles with [ truth? and has_belief? ]) / (count turtles) * 100
 end
 
 @#$#@#$#@
@@ -260,7 +266,7 @@ PLOT
 325
 260
 489
-Network Status
+believers
 time
 % of nodes
 0.0
@@ -270,7 +276,8 @@ time
 true
 true
 PENS
-"informed" 1.0 0 -10899396 true
+"has_belief" 1.0 0 -10899396 true
+"true_belief" 1.0 0 -16777216 true
 
 SLIDER
 25
