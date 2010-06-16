@@ -25,6 +25,9 @@ turtles-own
 globals
 [
   global-sent?        ;; is true if any message was sent in previous tick, false if no message was sent in previous tick (so therefore no more will be sent)
+  repeat-events?      ;; is true if we shoudl iterate through events
+  repeat-ticks?       ;; is true if we shoudl iterate ticks
+  gossip-setup-flag?   ;; set to true is gossip has been setup for this iteration
 ]
 
 ;;PROPERTY OF LINKS BETWEEN NODES
@@ -96,6 +99,7 @@ to initialize
   set threshold 0.25
   set fitness 0.0
   forget
+  set gossip-setup-flag? false
 end
 
 ; should be called when setting up for a new event, and only then
@@ -106,29 +110,63 @@ to forget
   set color white
 end
 
-; runs the repeated event/gossip cycles until the user sets repeat-events? to off.
-; represents the round of propgation of a single scandalous 'event' and all the gossip involved
-; TODO: calculate fitness after each gossip cycle
+; Start or continue an endless gossip cycle (should be a forever button)
 to go
-  ; Set up a gossip event.
-  ; forget any previous gossip
-  ask turtles
-  [ 
-    forget 
+  set repeat-events? true
+  set repeat-ticks? true
+  iterate
+end
+
+; Start or continue one gossip cycle (should be a forever button)
+to gossip
+  set repeat-events? false
+  set repeat-ticks? true
+  iterate
+end
+
+; Step through one gossip cycle  (should not be a forever button)
+to step
+  set repeat-events? false
+  set repeat-ticks? false
+  iterate
+end
+
+; runs the repeated event/gossip cycles until the user sets repeat-events? to off.
+; represents the round of propagation of a single scandalous 'event' and all the gossip involved
+; lots of flags set and unset here because netlogo doesn't have sophisticated ways of pausing and resuming
+to iterate
+  ; Have we set up this round of gossip yet?
+  if not gossip-setup-flag? [
+    ; Set up a gossip event.
+    ; forget any previous gossip
+    ask turtles
+    [ 
+      forget 
+    ]
+  
+    ; generate a new gossip event
+    start-gossip
+    set global-sent? true         ; need to be true so that first time through loop will work
+    set gossip-setup-flag? true   ; but we don't want to set up repeatedly
+  ]
+  ;now, loop until everyone who will know does know
+  spread-gossip
+  tick
+  update-plot
+    
+  if not global-sent? [ ;If nothing happened we are in equilibrium so the chitchat round is over. clean up
+    print "end of round!"
+    update-fitnesses
+    set gossip-setup-flag? false;
+    print repeat-events?
+    if not repeat-events? [
+      print "stopping"
+      stop
+    ] ; If we aren't supposed to repeat gossip sessions we should stop the whole thing here
   ]
   
-  ; generate a new gossip event
-  start-gossip
-  set global-sent? true ; need to be true so that first time through loop will work
-  ;now, loop until everyone who will know does know
-  while [ global-sent? ]
-  [ 
-    spread-gossip
-    tick
-    update-plot
-  ]
-  update-fitnesses
-  if not repeat-events? [ stop ]
+  ;If we have not set up the loop to continue automatically, ('go' or 'gossip' mode) bail out after just one tick
+  if not repeat-ticks? [stop]
 end
 
 ; called for a node after it has passed on its information
@@ -335,7 +373,7 @@ BUTTON
 230
 166
 step
-spread-gossip
+step
 NIL
 1
 T
@@ -360,16 +398,21 @@ number-of-nodes
 NIL
 HORIZONTAL
 
-SWITCH
-73
-270
-222
-303
-repeat-events?
-repeat-events?
-0
+BUTTON
+91
+126
+164
+165
+NIL
+gossip
+T
 1
--1000
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
 
 @#$#@#$#@
 GOSSIP
