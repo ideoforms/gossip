@@ -8,33 +8,24 @@
 
 ;; GLOBAL TODO 3: Add fitness rules
 
-;;NOTE ABOUT CODE:
-;; "TODO:" means something we need to do before we can run the model
-;; "TODO: (distant in future)" means something we want to do but should be one of the very last things done
-
-;;Changes from 06/14/10: 
-;;;; Threshold determines when message stops propagating by agents
-;;;; Weight of message (based on previous weights) is passed to reciever of message
-;;;; Initialization of agents and becoming uninformed are separated; one is used for setting up, one is used after propagating a message
-;;;; Weight of message that is sent is based on weight received with message and weight on link between the nodes
-;;;; Simulation ends once no more messages are being sent (determined by use of global_sent? variable)
-;;;; Written TODO notes throughout functions so we know where we need to make additional changes
-;;;; Added comments
 
 ;;OUR AGENTS
 turtles-own
 [
-  informed?           ;; if true, the turtle has the gossip
+  informed?           ;; if true, the turtle has the gossip in this turn
+  has-belief?         ;; if true, the turtle has an opinion on the truth
   liar?               ;; if true, the turtle is a liar
   truth?              ;; if true, our gossip is true
-  receivedweight      ;; value for weight received from message
+  received-weight     ;; value for weight received from message
   threshold           ;; threshold for when to stop sending
+  fitness             ;; accumulated fitness (or perhaps "wealth")
 ]
 
 ;;GLOBAL VARIABLES
 globals
 [
-  global_sent?        ;; is true if any message was sent in previous tick, false if no message was sent in previous tick (so therefore no more will be sent)
+  global-sent?        ;; is true if any message was sent in previous tick, false if no message was sent in previous tick (so therefore no more will be sent)
+  gossip-setup-flag?   ;; set to true is gossip has been setup for this iteration
 ]
 
 ;;PROPERTY OF LINKS BETWEEN NODES
@@ -55,14 +46,17 @@ end
 
 to setup
   clear-all
-  set global_sent? true ; need to be true so that first time through loop will work
   setup-nodes
   setup-spatially-clustered-network
-  ask n-of initial-observer-count turtles
-    [ become-informed true 1]
   ask n-of initial-liar-count turtles
     [ become-liar ]
   update-plot
+end
+
+;; set up some turtles to be observers of a particular gossip-worthy event
+to start-gossip
+    ask n-of initial-observer-count turtles
+    [ become-informed true 1 ]
 end
 
 ;; set up all nodes, including initializing their agent values
@@ -96,28 +90,71 @@ to setup-spatially-clustered-network
   ]
 end
 
-; should be called when setting up for a new event, and only then
 ; should be called before nodes are defined as observers
 to initialize
-  set informed? false
   set liar? false
-  set color white
-  set receivedweight 1.0
+  set received-weight 1.0
   set threshold 0.25
+  set fitness 0.0
+  forget
+  set gossip-setup-flag? false
 end
 
-; runs the entire program until messages are no longer being sent
-; TODO: (distant in future) have it loop with creation of new events after old event dies AND fitness has been calculated
+; should be called when setting up for a new event, and only then
+to forget
+  set informed? false
+  set truth? false
+  set has-belief? false
+  set color white
+end
+
+; Start or continue an endless gossip cycle (should be a forever button)
 to go
-  if not global_sent? ; only stop when no messages were sent during the last tick
-    [ stop ]
-  ask turtles
-  [
-    
+  let event-finished? iterate
+end
+
+; Start or continue one gossip cycle (should be a forever button)
+to gossip
+  let event-finished? iterate
+  if event-finished [stop]
+end
+
+; Step through one gossip cycle  (should not be a forever button)
+to step
+  let event-finished? iterate
+end
+
+; runs the repeated event/gossip cycles until the user sets repeat-events? to off.
+; represents the round of propagation of a single scandalous 'event' and all the gossip involved
+; lots of flags set and unset here because netlogo doesn't have sophisticated ways of pausing and resuming
+to-report iterate
+  ; Have we set up this round of gossip yet?
+  if not gossip-setup-flag? [
+    ; Set up a gossip event.
+    ; forget any previous gossip
+    ask turtles
+    [ 
+      forget 
+    ]
+  
+    ; generate a new gossip event
+    start-gossip
+    set global-sent? true         ; need to be true so that first time through loop will work
+    set gossip-setup-flag? true   ; but we don't want to set up repeatedly
   ]
+  ;now, loop until everyone who will know does know
   spread-gossip
   tick
   update-plot
+    
+  ifelse global-sent? [ ; if we received events this round we report that we are not ready to stop
+    report false
+  ]
+  [ ;If nothing happened we are in equilibrium so the chitchat round is over. clean up
+    update-fitnesses
+    set gossip-setup-flag? false;
+    report true         ; report event ended in case we wish to stop here
+  ]
 end
 
 ; called for a node after it has passed on its information
@@ -133,10 +170,10 @@ end
 
 ; used when you receive a message
 ; TODO: need the receivedweight to be related to all messages received during a given timestep
-to become-informed [ truth passweight ];; turtle procedure
+to become-informed [ truth pass-weight ];; turtle procedure
   set informed? true
   set truth? truth
-  set receivedweight passweight
+  set received-weight pass-weight
   ifelse truth
     [ set color green ]
     [ set color red ]
@@ -144,44 +181,58 @@ end
 
 ; all turtles with messages will send them to neighbors based on the weight and threshold
 ; TODO: need truth to be related to scale of truthiness
+; TODO: have a better rule for received weighting than last-value-wins
 to spread-gossip
-  set global_sent? false ; initialize to false at beginning of each tick
+  set global-sent? false ; initialize to false at beginning of each tick
   ask turtles with [informed?]
-    [ ask link-neighbors ;;with [not informed?]
+    [ ask link-neighbors
       [
         ; first find the weight of the link, then find that weight multiplied by the sender's receivedweight
-        let s [weight] of link-with myself
-        let thisweight (([receivedweight] of myself) * s)
+        let outgoing-weight [weight] of link-with myself
+        let this-weight (([received-weight] of myself) * outgoing-weight)
+        
         ; if the weight shows that we should send the message based on using it as a probability
         ; and the weight is also above the threshold of when to no longer send,
         ; send to the neighbor (truth value based on state as liar) 
-        if random-float 1.0 < (thisweight)
+        if threshold < (this-weight)
         [
-          if threshold < (thisweight)
-          [
-            set global_sent? true ; set to true so globally we know at least 1 message was propagated
-            ; send your weighted message as either true or false based on liar
-            ; TODO: this will change based on truth table
-            ifelse ([liar?] of myself)
-              [ become-informed [not truth?] of myself thisweight]
-              [ become-informed [truth?] of myself thisweight]
-          ]
+          set global-sent? true ; set to true so globally we know at least 1 message was propagated
+          ; send your weighted message as either true or false based on liar
+          ; TODO: this will change based on truth table
+          ifelse ([liar?] of myself)
+            [ become-informed [not truth?] of myself this-weight]
+            [ become-informed [truth?] of myself this-weight]
+          set has-belief? true
         ]
       ]
       become-uninformed ; since has sent message, don't want to resend next time
     ]
 end
 
-
 to update-plot
-  set-current-plot "Network Status"
-  set-current-plot-pen "informed"
-  plot (count turtles with [informed?]) / (count turtles) * 100
+  set-current-plot "believers"
+  set-current-plot-pen "has-belief"
+  plot (count turtles with [has-belief?]) / (count turtles) * 100
+  set-current-plot-pen "true-belief"
+  plot (count turtles with [ truth? and has-belief? ]) / (count turtles) * 100
 end
 
+; calculate everyone's fitness and update
+; TODO: have different payoffs for liars and truth-tellers
+; TODO: base it on the mean fitness
+to update-fitnesses
+  ask turtles with [has-belief?] [
+    set fitness (fitness + (truthiness truth?))
+    set size (fitness * 0.1 + 1.0)
+  ]
+end
 
-; Copyright 2008 Uri Wilensky. All rights reserved.
-; The full copyright notice is in the Information tab.
+; report the distance of an individual belief from truth. Easy when it's binary!
+to-report truthiness [belief?]
+  ifelse belief?
+    [ report 1.0 ]
+    [ report -1.0 ]
+end
 @#$#@#$#@
 GRAPHICS-WINDOW
 265
@@ -211,9 +262,9 @@ ticks
 
 BUTTON
 25
-125
-95
-165
+88
+233
+121
 NIL
 setup
 NIL
@@ -226,10 +277,10 @@ NIL
 NIL
 
 BUTTON
-110
-126
-168
-166
+26
+125
+84
+165
 NIL
 go
 T
@@ -246,7 +297,7 @@ PLOT
 325
 260
 489
-Network Status
+believers
 time
 % of nodes
 0.0
@@ -256,7 +307,8 @@ time
 true
 true
 PENS
-"informed" 1.0 0 -10899396 true
+"has-belief" 1.0 0 -10899396 true
+"true-belief" 1.0 0 -16777216 true
 
 SLIDER
 25
@@ -267,7 +319,7 @@ number-of-nodes
 number-of-nodes
 10
 300
-150
+145
 5
 1
 NIL
@@ -309,7 +361,7 @@ BUTTON
 230
 166
 step
-go
+step
 NIL
 1
 T
@@ -334,6 +386,22 @@ number-of-nodes
 NIL
 HORIZONTAL
 
+BUTTON
+91
+126
+164
+165
+NIL
+gossip
+T
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+
 @#$#@#$#@
 GOSSIP
 -------
@@ -346,6 +414,26 @@ Fun payoff functions:
 
 * give everyone a secret preference
 * payoff shared by folks who work out the truth
+
+
+CHANGELOG
+-------
+
+;;NOTE ABOUT CODE:
+;; "TODO:" means something we need to do before we can run the model
+;; "TODO: (distant in future)" means something we want to do but should be one of the very last things done
+
+Changes from 06/14/10: 
+- Threshold determines when message stops propagating by agents
+- Weight of message (based on previous weights) is passed to reciever of message
+- Initialization of agents and becoming uninformed are separated; one is used for setting up, one is used after propagating a message
+- Weight of message that is sent is based on weight received with message and weight on link between the nodes
+- Simulation ends once no more messages are being sent (determined by use of global_sent? variable)
+- Written TODO notes throughout functions so we know where we need to make additional changes
+- Added comments
+
+Changes from 06/14/10
+;;;; 
 @#$#@#$#@
 default
 true
