@@ -25,8 +25,6 @@ turtles-own
 globals
 [
   global-sent?        ;; is true if any message was sent in previous tick, false if no message was sent in previous tick (so therefore no more will be sent)
-  repeat-events?      ;; is true if we shoudl iterate through events
-  repeat-ticks?       ;; is true if we shoudl iterate ticks
   gossip-setup-flag?   ;; set to true is gossip has been setup for this iteration
 ]
 
@@ -112,29 +110,24 @@ end
 
 ; Start or continue an endless gossip cycle (should be a forever button)
 to go
-  set repeat-events? true
-  set repeat-ticks? true
-  iterate
+  let event-finished? iterate
 end
 
 ; Start or continue one gossip cycle (should be a forever button)
 to gossip
-  set repeat-events? false
-  set repeat-ticks? true
-  iterate
+  let event-finished? iterate
+  if event-finished [stop]
 end
 
 ; Step through one gossip cycle  (should not be a forever button)
 to step
-  set repeat-events? false
-  set repeat-ticks? false
-  iterate
+  let event-finished? iterate
 end
 
 ; runs the repeated event/gossip cycles until the user sets repeat-events? to off.
 ; represents the round of propagation of a single scandalous 'event' and all the gossip involved
 ; lots of flags set and unset here because netlogo doesn't have sophisticated ways of pausing and resuming
-to iterate
+to-report iterate
   ; Have we set up this round of gossip yet?
   if not gossip-setup-flag? [
     ; Set up a gossip event.
@@ -154,19 +147,14 @@ to iterate
   tick
   update-plot
     
-  if not global-sent? [ ;If nothing happened we are in equilibrium so the chitchat round is over. clean up
-    print "end of round!"
+  ifelse global-sent? [ ; if we received events this round we report that we are not ready to stop
+    report false
+  ]
+  [ ;If nothing happened we are in equilibrium so the chitchat round is over. clean up
     update-fitnesses
     set gossip-setup-flag? false;
-    print repeat-events?
-    if not repeat-events? [
-      print "stopping"
-      stop
-    ] ; If we aren't supposed to repeat gossip sessions we should stop the whole thing here
+    report true         ; report event ended in case we wish to stop here
   ]
-  
-  ;If we have not set up the loop to continue automatically, ('go' or 'gossip' mode) bail out after just one tick
-  if not repeat-ticks? [stop]
 end
 
 ; called for a node after it has passed on its information
