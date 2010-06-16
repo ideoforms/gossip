@@ -9,26 +9,30 @@
 ;; GLOBAL TODO 3: Add fitness rules
 
 
-;;OUR AGENTS
-turtles-own
-[
-  informed?           ;; if true, the turtle has the gossip in this turn
-  has-belief?         ;; if true, the turtle has an opinion on the truth
-  liar?               ;; if true, the turtle is a liar
-  truth?              ;; if true, our gossip is true
-  received-weight     ;; value for weight received from message
-  threshold           ;; threshold for when to stop sending
-  fitness             ;; accumulated fitness (or perhaps "wealth")
-]
-
-;;GLOBAL VARIABLES
+;; GLOBAL VARIABLES
 globals
 [
   global-sent?        ;; is true if any message was sent in previous tick, false if no message was sent in previous tick (so therefore no more will be sent)
   gossip-setup-flag?   ;; set to true is gossip has been setup for this iteration
+  send-threshold      ;; low bound for when to stop sending
+  maximum-fitness     ;; the maximum fitness amongst all agents (for normalizing node sizes)
 ]
 
-;;PROPERTY OF LINKS BETWEEN NODES
+;; OUR AGENTS
+turtles-own
+[
+  ;; persistent properties
+  liar?               ;; if true, the turtle is a liar
+  fitness             ;; accumulated fitness (or perhaps "wealth")
+
+  ;; event-specific properties
+  just-informed?      ;; if true, the turtle has been given the gossip in this turn
+  has-belief?         ;; if true, the turtle has an opinion on the truth
+  belief-value        ;; value of held belief (0..1)
+  received-weight     ;; cumulative value for weight received from message
+]
+
+;; PROPERTY OF LINKS BETWEEN NODES
 links-own
 [
   weight              ;; links are weighted
@@ -36,7 +40,7 @@ links-own
 
 ;; Creates links between specified nodes with a random weight
 ;; Creates thickness for display of node based on weight
-;;TODO: (distant in future) have the weight of the link based on personal likelihood of spreading gossip
+;; TODO: (distant in future) have the weight of the link based on personal likelihood of spreading gossip
 to create-random-link-with [anode]
   create-link-with anode [
     set weight random-float 1.0
@@ -55,18 +59,18 @@ end
 
 ;; set up some turtles to be observers of a particular gossip-worthy event
 to start-gossip
-    ask n-of initial-observer-count turtles
-    [ become-informed true 1 ]
+  ask n-of initial-observer-count turtles
+    [ become-informed 1.0 1.0 ]
 end
 
 ;; set up all nodes, including initializing their agent values
 to setup-nodes
   set-default-shape turtles "circle"
+  set maximum-fitness 0
   crt number-of-nodes
   [
     ; for visual reasons, we don't put any nodes *too* close to the edges
     setxy (random-xcor * 0.95) (random-ycor * 0.95)
-    ;become-uninformed
     initialize ; this function is only called to set things in setup
   ]
 end
@@ -94,7 +98,7 @@ end
 to initialize
   set liar? false
   set received-weight 1.0
-  set threshold 0.25
+  set send-threshold 0.25
   set fitness 0.0
   forget
   set gossip-setup-flag? false
@@ -102,13 +106,16 @@ end
 
 ; should be called when setting up for a new event, and only then
 to forget
-  set informed? false
-  set truth? false
+  set just-informed? false
   set has-belief? false
-  set color white
+  set belief-value 10.0
+  set color [255 255 255]
 end
 
 ; Start or continue an endless gossip cycle (should be a forever button)
+; runs the repeated event/gossip cycles until the user sets repeat-events? to off.
+; represents the round of propagation of a single scandalous 'event' and all the gossip involved
+; TODO: calculate fitness after each gossip cycle
 to go
   let event-finished? iterate
 end
@@ -157,11 +164,6 @@ to-report iterate
   ]
 end
 
-; called for a node after it has passed on its information
-to become-uninformed ;; turtle procedure for end of each message send (reset to uninformed to mean that we no longer have to send a message)
-  set informed? false
-end
-
 ; used during initialization only
 to become-liar
   set liar? true
@@ -170,13 +172,25 @@ end
 
 ; used when you receive a message
 ; TODO: need the receivedweight to be related to all messages received during a given timestep
-to become-informed [ truth pass-weight ];; turtle procedure
-  set informed? true
-  set truth? truth
+to become-informed [ pass-value pass-weight ];; turtle procedure
+  set just-informed? true
+  
+  ;; ultra-basic decision making rule: mean of current belief and new information
+  ifelse has-belief?
+  [
+    set belief-value 0.5 * (belief-value + pass-value)
+  ]
+  [
+    set has-belief? true
+    set belief-value pass-value
+  ]
+
+  ;; currently use the last received information weight.
+  ;; maybe we should use the maximum of received weights..?
   set received-weight pass-weight
-  ifelse truth
-    [ set color green ]
-    [ set color red ]
+  
+  ;; scale our display colour according to belief value (0 = red, 1 = green)
+  set color rgb (255.0 * (1.0 - belief-value)) (255.0 * belief-value) 0
 end
 
 ; all turtles with messages will send them to neighbors based on the weight and threshold
@@ -184,7 +198,7 @@ end
 ; TODO: have a better rule for received weighting than last-value-wins
 to spread-gossip
   set global-sent? false ; initialize to false at beginning of each tick
-  ask turtles with [informed?]
+  ask turtles with [just-informed?]
     [ ask link-neighbors
       [
         ; first find the weight of the link, then find that weight multiplied by the sender's receivedweight
@@ -194,18 +208,17 @@ to spread-gossip
         ; if the weight shows that we should send the message based on using it as a probability
         ; and the weight is also above the threshold of when to no longer send,
         ; send to the neighbor (truth value based on state as liar) 
-        if threshold < (this-weight)
+        if send-threshold < (this-weight)
         [
           set global-sent? true ; set to true so globally we know at least 1 message was propagated
           ; send your weighted message as either true or false based on liar
           ; TODO: this will change based on truth table
           ifelse ([liar?] of myself)
-            [ become-informed [not truth?] of myself this-weight]
-            [ become-informed [truth?] of myself this-weight]
-          set has-belief? true
+            [ become-informed [1.0 - belief-value] of myself this-weight]
+            [ become-informed [belief-value] of myself this-weight]
         ]
       ]
-      become-uninformed ; since has sent message, don't want to resend next time
+      set just-informed? false; since has sent message, don't want to resend next time
     ]
 end
 
@@ -214,7 +227,7 @@ to update-plot
   set-current-plot-pen "has-belief"
   plot (count turtles with [has-belief?]) / (count turtles) * 100
   set-current-plot-pen "true-belief"
-  plot (count turtles with [ truth? and has-belief? ]) / (count turtles) * 100
+  plot (count turtles with [ belief-value > 0.5 and has-belief? ]) / (count turtles) * 100
 end
 
 ; calculate everyone's fitness and update
@@ -222,26 +235,24 @@ end
 ; TODO: base it on the mean fitness
 to update-fitnesses
   ask turtles with [has-belief?] [
-    set fitness (fitness + (truthiness truth?))
+    set fitness (fitness + (truthiness belief-value))
     set size (fitness * 0.1 + 1.0)
   ]
 end
 
 ; report the distance of an individual belief from truth. Easy when it's binary!
-to-report truthiness [belief?]
-  ifelse belief?
-    [ report 1.0 ]
-    [ report -1.0 ]
+to-report truthiness [value]
+  report value
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
 265
 10
-726
-492
+828
+594
 20
 20
-11.0
+13.5
 1
 10
 1
