@@ -55,14 +55,17 @@ end
 
 to setup
   clear-all
-  set global_sent? true ; need to be true so that first time through loop will work
   setup-nodes
   setup-spatially-clustered-network
-  ask n-of initial-observer-count turtles
-    [ become-informed true 1]
   ask n-of initial-liar-count turtles
     [ become-liar ]
   update-plot
+end
+
+;; set up some turtles to be observers of a particular gossip-worthy event
+to have-scandal
+    ask n-of initial-observer-count turtles
+    [ become-informed true 1]
 end
 
 ;; set up all nodes, including initializing their agent values
@@ -96,28 +99,42 @@ to setup-spatially-clustered-network
   ]
 end
 
-; should be called when setting up for a new event, and only then
 ; should be called before nodes are defined as observers
 to initialize
-  set informed? false
   set liar? false
-  set color white
   set receivedweight 1.0
   set threshold 0.25
+  forget
 end
 
-; runs the entire program until messages are no longer being sent
-; TODO: (distant in future) have it loop with creation of new events after old event dies AND fitness has been calculated
+; should be called when setting up for a new event, and only then
+to forget
+  set global_sent? true ; need to be true so that first time through loop will work
+  set informed? false
+  set color white
+end
+
+; runs the repeated event/gossip cycles until the user sets repeat_events? to off.
+; represents the round of propgation of a single scandalous 'event' and all the gossip involved
+; TODO: calculate fitness after each gossip cycle
 to go
-  if not global_sent? ; only stop when no messages were sent during the last tick
-    [ stop ]
+  ; Set up a gossip event.
+  ; forget any previous gossip
   ask turtles
-  [
-    
+  [ 
+    forget 
   ]
-  spread-gossip
-  tick
-  update-plot
+  ;generate a new gossip event
+  have-scandal
+  ;now, loop until everyone who will know does know
+  while [ global_sent? ]
+  [ 
+    spread-gossip
+    tick
+    update-plot
+  ]
+  ;update fitness ?
+  if not repeat_events? [ stop ]
 end
 
 ; called for a node after it has passed on its information
@@ -144,6 +161,7 @@ end
 
 ; all turtles with messages will send them to neighbors based on the weight and threshold
 ; TODO: need truth to be related to scale of truthiness
+; TODO: have a better rule for received weighting than last-value-wins
 to spread-gossip
   set global_sent? false ; initialize to false at beginning of each tick
   ask turtles with [informed?]
@@ -172,16 +190,12 @@ to spread-gossip
     ]
 end
 
-
 to update-plot
   set-current-plot "Network Status"
   set-current-plot-pen "informed"
   plot (count turtles with [informed?]) / (count turtles) * 100
 end
 
-
-; Copyright 2008 Uri Wilensky. All rights reserved.
-; The full copyright notice is in the Information tab.
 @#$#@#$#@
 GRAPHICS-WINDOW
 265
@@ -267,7 +281,7 @@ number-of-nodes
 number-of-nodes
 10
 300
-150
+145
 5
 1
 NIL
@@ -333,6 +347,17 @@ number-of-nodes
 1
 NIL
 HORIZONTAL
+
+SWITCH
+73
+270
+222
+303
+repeat_events?
+repeat_events?
+1
+1
+-1000
 
 @#$#@#$#@
 GOSSIP
