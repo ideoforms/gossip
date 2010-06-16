@@ -109,7 +109,6 @@ end
 
 ; should be called when setting up for a new event, and only then
 to forget
-  set global_sent? true ; need to be true so that first time through loop will work
   set informed? false
   set color white
 end
@@ -126,6 +125,7 @@ to go
   ]
   ;generate a new gossip event
   have-scandal
+  set global_sent? true ; need to be true so that first time through loop will work
   ;now, loop until everyone who will know does know
   while [ global_sent? ]
   [ 
