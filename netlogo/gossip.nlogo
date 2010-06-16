@@ -123,7 +123,7 @@ end
 ; Start or continue one gossip cycle (should be a forever button)
 to gossip
   let event-finished? iterate
-  if event-finished [stop]
+  if event-finished? [stop]
 end
 
 ; Step through one gossip cycle  (should not be a forever button)
