@@ -106,6 +106,7 @@ end
 
 ; should be called when setting up for a new event, and only then
 to forget
+  set received-weight 1.0
   set just-informed? false
   set has-belief? false
   set belief-value 10.0
