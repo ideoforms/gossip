@@ -14,8 +14,10 @@ globals
 [
   global-sent?        ;; is true if any message was sent in previous tick, false if no message was sent in previous tick (so therefore no more will be sent)
   gossip-setup-flag?   ;; set to true is gossip has been setup for this iteration
-  send-threshold      ;; low bound for when to stop sending
+  send-threshold      ;; low bound for when to stop sending 
+  ;;Megan: why is the threshold global and not a turtle parameter?
   maximum-fitness     ;; the maximum fitness amongst all agents (for normalizing node sizes)
+  liardecrease
 ]
 
 ;; OUR AGENTS
@@ -24,12 +26,16 @@ turtles-own
   ;; persistent properties
   liar?               ;; if true, the turtle is a liar
   fitness             ;; accumulated fitness (or perhaps "wealth")
+  my-decision-rule    ;; which decision rule to use when choosing among messages to propagate
 
   ;; event-specific properties
   just-informed?      ;; if true, the turtle has been given the gossip in this turn
   has-belief?         ;; if true, the turtle has an opinion on the truth
   belief-value        ;; value of held belief (0..1)
   received-weight     ;; cumulative value for weight received from message
+  old-received-weight ;; weight of message decided on previously (some decision rules need to know if it is new or not)
+  old-belief-value    ;; purely for remembering previous belief value; this may end up needing to be a list
+  received-messages   ;; list: need to store message and its value for each time step
 ]
 
 ;; PROPERTY OF LINKS BETWEEN NODES
@@ -55,6 +61,7 @@ to setup
   ask n-of initial-liar-count turtles
     [ become-liar ]
   update-plot
+  set liardecrease 0.1
 end
 
 ;; set up some turtles to be observers of a particular gossip-worthy event
@@ -97,19 +104,23 @@ end
 ; should be called before nodes are defined as observers
 to initialize
   set liar? false
-  set received-weight 1.0
+ ; set received-weight 0.0
   set send-threshold 0.25
   set fitness 0.0
   forget
   set gossip-setup-flag? false
+  set-decision-rule
 end
 
 ; should be called when setting up for a new event, and only then
 to forget
-  set received-weight 1.0
+  set received-weight 0.0
   set just-informed? false
   set has-belief? false
-  set belief-value 10.0
+  set belief-value 1.0
+  set received-messages []
+  set old-received-weight 0.0
+  set old-belief-value 0
   set color [255 255 255]
 end
 
@@ -172,26 +183,18 @@ to become-liar
 end
 
 ; used when you receive a message
-; TODO: need the receivedweight to be related to all messages received during a given timestep
+;;CHANGE: only add this message and weight to your list of recieved messages and weights
+;;decision rules won't be used until you have recieved all you will receive this time step (see spread-gossip procedure)
 to become-informed [ pass-value pass-weight ];; turtle procedure
-  set just-informed? true
+  set just-informed? true 
+  set has-belief? true
+  let topass []
+  set topass lput pass-weight topass
+  ifelse pass-value < 0
+  [ set topass lput 0 topass]
+  [ set topass lput pass-value topass]
+  set received-messages lput topass received-messages
   
-  ;; ultra-basic decision making rule: mean of current belief and new information
-  ifelse has-belief?
-  [
-    set belief-value 0.5 * (belief-value + pass-value)
-  ]
-  [
-    set has-belief? true
-    set belief-value pass-value
-  ]
-
-  ;; currently use the last received information weight.
-  ;; maybe we should use the maximum of received weights..?
-  set received-weight pass-weight
-  
-  ;; scale our display colour according to belief value (0 = red, 1 = green)
-  set color rgb (255.0 * (1.0 - belief-value)) (255.0 * belief-value) 0
 end
 
 ; all turtles with messages will send them to neighbors based on the weight and threshold
@@ -200,7 +203,9 @@ end
 to spread-gossip
   set global-sent? false ; initialize to false at beginning of each tick
   ask turtles with [just-informed?]
-    [ ask link-neighbors
+    [ 
+      decide ; choose which received message is the one to propagate
+      ask link-neighbors
       [
         ; first find the weight of the link, then find that weight multiplied by the sender's receivedweight
         let outgoing-weight [weight] of link-with myself
@@ -215,7 +220,9 @@ to spread-gossip
           ; send your weighted message as either true or false based on liar
           ; TODO: this will change based on truth table
           ifelse ([liar?] of myself)
-            [ become-informed [1.0 - belief-value] of myself this-weight]
+            ;[ become-informed [1.0 - belief-value] of myself this-weight]
+            ;[ become-informed [belief-value] of myself this-weight]
+            [ become-informed [(belief-value - liardecrease)] of myself this-weight]
             [ become-informed [belief-value] of myself this-weight]
         ]
       ]
@@ -229,6 +236,11 @@ to update-plot
   plot (count turtles with [has-belief?]) / (count turtles) * 100
   set-current-plot-pen "true-belief"
   plot (count turtles with [ belief-value > 0.5 and has-belief? ]) / (count turtles) * 100
+  
+  set-current-plot "fitness plot"
+  set-current-plot-pen "fitness-pen"
+  histogram [fitness] of turtles
+  auto-plot-on
 end
 
 ; calculate everyone's fitness and update
@@ -236,14 +248,190 @@ end
 ; TODO: base it on the mean fitness
 to update-fitnesses
   ask turtles with [has-belief?] [
-    set fitness (fitness + (truthiness belief-value))
-    set size (fitness * 0.1 + 1.0)
+    ;set fitness (fitness + (truthiness belief-value))
+    set fitness (truthiness belief-value)
+    ;set size (fitness * 0.1 + 1.0)
+    set size (fitness * 2.0 + 0.1)
   ]
 end
 
 ; report the distance of an individual belief from truth. Easy when it's binary!
 to-report truthiness [value]
   report value
+end
+
+; set own decision rule. This is necessary for when we let turtles have different decision rules.
+; does NetLogo have a better way to do this??
+to set-decision-rule
+  ifelse Decision-Rule = "Mode"[
+    set my-decision-rule 1
+  ]
+  [ ifelse Decision-Rule = "Random"[
+    set my-decision-rule 2
+    ]
+    [ ifelse Decision-Rule = "Average"[
+      set my-decision-rule 3
+      ]
+      [ ifelse Decision-Rule = "Highest Single" [
+        set my-decision-rule 4
+        ]
+        [ ifelse Decision-Rule = "Highest Accumulated" [
+          set my-decision-rule 5
+          ]
+          [ set my-decision-rule 6
+           ]
+          ]
+        ]
+      ]
+    ]
+end
+
+; used each time step.  There must be a better way to do this.
+to decide
+  ;remember most recent history
+  if received-weight > 0[
+    set old-received-weight received-weight
+    set old-belief-value belief-value
+  ]
+  ;use appropriate decision function
+  ifelse my-decision-rule = 1 [
+    decide-mode
+  ]
+  [ ifelse my-decision-rule = 2[
+      decide-random
+    ]
+    [ ifelse my-decision-rule = 3[
+        decide-average
+      ]
+      [ ifelse my-decision-rule = 4 [
+          decide-highest-single
+        ]
+        [ ifelse my-decision-rule = 5 [
+            decide-highest-all
+          ]
+          [ decide-biased
+           ]
+          ]
+        ]
+      ]
+    ]
+  set received-messages []
+  ;; scale our display colour according to belief value (0 = red, 1 = green)
+  set color rgb (255.0 * (1.0 - belief-value)) (255.0 * belief-value) 0
+end
+
+to decide-random
+  let mysize length received-messages
+  if mysize > 0[
+    if old-received-weight > 0[
+      let oldmessage []
+      set oldmessage lput old-received-weight oldmessage
+      set oldmessage lput old-belief-value oldmessage
+      set received-messages lput oldmessage received-messages
+      set mysize mysize + 1
+    ]
+    ;set new belief and value
+    let choice random mysize
+    set received-weight item 0 (item choice received-messages)
+    set belief-value item 1 (item choice received-messages)
+  ]  
+end
+
+to decide-average
+    let total-value 0
+    let total-weight 0 
+    if old-received-weight > 0[
+      let oldmessage []
+      set oldmessage lput old-received-weight oldmessage
+      set oldmessage lput old-belief-value oldmessage
+      set received-messages lput oldmessage received-messages
+    ]
+    foreach received-messages [
+      set total-value (total-value + (item 1 (?)) )
+      set total-weight (total-weight + (item 0 (?)))
+    ]
+    
+    set total-value total-value / (length received-messages)
+    set total-weight total-weight / (length received-messages)
+   
+    set received-weight total-weight
+    set belief-value total-value
+end
+
+to decide-mode
+  let valuelist []
+  foreach received-messages [
+    set valuelist lput item 1 (?) valuelist
+  ]
+  let modelist modes valuelist
+  ifelse length modelist > 1 [
+    let rand random length modelist
+    set belief-value item rand modelist
+  ]
+  [ set belief-value item 0 modelist ]
+  
+  show belief-value
+  ;need to find corresponding weight -- yes, I'm doing this a stupid way
+  foreach received-messages [
+    if item 1 ? = belief-value [
+      set received-weight item 0 ?
+    ]
+  ]
+end
+
+to decide-highest-single
+
+end
+
+to decide-highest-all
+  let maxweight 0
+  let maxvalue 0
+  if old-received-weight > 0[
+    let oldmessage []
+    set oldmessage lput old-received-weight oldmessage
+    set oldmessage lput old-belief-value oldmessage
+    set received-messages lput oldmessage received-messages
+  ]
+  
+  foreach received-messages [
+    let curritem item 0 (?)
+    if curritem > maxweight [
+      set maxweight curritem
+      set maxvalue item 1 (?)
+    ]
+  ]
+   
+  set received-weight maxweight
+  set belief-value maxvalue
+end
+
+to decide-biased
+;  let bias-sum 0
+;  let bias-list []
+;  if old-received-weight > 0[
+;    let oldmessage []
+;    set oldmessage lput old-received-weight oldmessage
+;    set oldmessage lput old-belief-value oldmessage
+;    set received-messages lput oldmessage received-messages
+;  ]
+;  
+;  ;find normalization constant
+;  foreach received-messages [
+;   set bias-sum bias-sum +  (item 0 (item ? received-messages))
+;  ]
+;   
+;  ;normalize everything
+;  foreach received-messages [
+;    let b (item 1 (item ? received-messages) * bias-sum)
+;    set bias-list lput [b ?] bias-list
+;  ]
+;  sort bias-list
+;  let rand random-float 1
+;  
+;  set received-weight maxweight
+;  set belief-value maxvalue
+;  set received-messages [] 
+  
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -413,6 +601,34 @@ NIL
 NIL
 NIL
 NIL
+
+CHOOSER
+27
+272
+191
+317
+Decision-Rule
+Decision-Rule
+"Random" "Average" "Mode" "Highest Single" "Highest Accumulated" "Weight Biased"
+4
+
+PLOT
+872
+26
+1072
+176
+Fitness plot
+Fitness
+Number of Nodes
+0.0
+1.0
+0.0
+145.0
+true
+false
+PENS
+"default" 0.1 1 -16777216 true
+"fitness-pen" 0.1 1 -16777216 true
 
 @#$#@#$#@
 GOSSIP
