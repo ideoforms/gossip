@@ -223,7 +223,7 @@ to spread-gossip
       [
         ; first find the weight of the link, then find that weight multiplied by the sender's receivedweight
         let outgoing-weight [weight] of link-with myself
-        let this-weight (([received-weight] of myself) * outgoing-weight)
+        let this-weight (([received-weight] of myself) * outgoing-weight) ; Warning - this takes forever to decay for large link strneght
         
         ; if the weight shows that we should send the message based on using it as a probability
         ; and the weight is also above the threshold of when to no longer send,
@@ -648,7 +648,7 @@ CHOOSER
 Decision-Rule
 Decision-Rule
 "Random" "Average" "Mode" "Highest Single" "Weight Biased"
-0
+1
 
 PLOT
 872
@@ -685,6 +685,14 @@ OUTPUT
 -------
 
 When you run the code (with or without behavior space) you will be asked for a filename.  This file will have output the average fitness per event number.
+
+KNOWN BUGS
+----------
+Check out the line
+
+let this-weight (([received-weight] of myself) * outgoing-weight)
+
+Warning - this takes forever to decay for large link strength, as close neighbours chatter endlessly about the same incident.
 
 
 CHANGELOG
