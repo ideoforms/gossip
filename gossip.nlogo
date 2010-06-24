@@ -18,6 +18,9 @@ globals
   ;;Megan: why is the threshold global and not a turtle parameter?
   maximum-fitness     ;; the maximum fitness amongst all agents (for normalizing node sizes)
   liardecrease
+  endevent?
+  outfilename
+  event-number
 ]
 
 ;; OUR AGENTS
@@ -62,6 +65,10 @@ to setup
     [ become-liar ]
   update-plot
   set liardecrease 0.1
+  set endevent? false
+  set event-number 0
+  set outfilename user-new-file
+  file-open outfilename
 end
 
 ;; set up some turtles to be observers of a particular gossip-worthy event
@@ -105,8 +112,8 @@ end
 to initialize
   set liar? false
  ; set received-weight 0.0
-  set send-threshold 0.25
-  set fitness 0.0
+  set send-threshold 0.5
+  set fitness -1.0
   forget
   set gossip-setup-flag? false
   set-decision-rule
@@ -147,10 +154,14 @@ end
 ; represents the round of propagation of a single scandalous 'event' and all the gossip involved
 ; lots of flags set and unset here because netlogo doesn't have sophisticated ways of pausing and resuming
 to-report iterate
+  set endevent? false
   ; Have we set up this round of gossip yet?
   if not gossip-setup-flag? [
     ; Set up a gossip event.
     ; forget any previous gossip
+    ;show "new gossip event"
+    set event-number event-number + 1
+    saveFitness
     ask turtles
     [ 
       forget 
@@ -163,6 +174,7 @@ to-report iterate
   ]
   ;now, loop until everyone who will know does know
   spread-gossip
+  set endevent? global-sent?
   tick
   update-plot
     
@@ -173,6 +185,8 @@ to-report iterate
     update-fitnesses
     set gossip-setup-flag? false;
     report true         ; report event ended in case we wish to stop here
+    set endevent? true
+    show "end"
   ]
 end
 
@@ -255,6 +269,38 @@ to update-fitnesses
   ]
 end
 
+to-report allfitness
+
+let reportlist []
+  if endevent? [
+  ask turtles [
+    if has-belief? and fitness > -1[
+      set reportlist lput fitness reportlist
+    ]
+  ]
+  ]
+ ; print reportlist
+  report reportlist
+end
+
+; assumes this is only called at the end of an event
+to saveFitness
+  let total 0
+  let counting 0
+  ask turtles [
+    if has-belief? and fitness > -1[
+      set counting counting + 1
+      set total total + fitness
+    ]
+  ]
+  if counting > 0
+  [set total total / counting]
+  ;let currfilename (word outfilename event-number)
+  file-type event-number
+  file-type " "
+  file-print total
+end
+
 ; report the distance of an individual belief from truth. Easy when it's binary!
 to-report truthiness [value]
   report value
@@ -275,15 +321,11 @@ to set-decision-rule
       [ ifelse Decision-Rule = "Highest Single" [
         set my-decision-rule 4
         ]
-        [ ifelse Decision-Rule = "Highest Accumulated" [
-          set my-decision-rule 5
-          ]
-          [ set my-decision-rule 6
+        [ set my-decision-rule 5
            ]
           ]
         ]
       ]
-    ]
 end
 
 ; used each time step.  There must be a better way to do this.
@@ -306,15 +348,11 @@ to decide
       [ ifelse my-decision-rule = 4 [
           decide-highest-single
         ]
-        [ ifelse my-decision-rule = 5 [
-            decide-highest-all
-          ]
-          [ decide-biased
+        [ decide-biased
            ]
           ]
         ]
       ]
-    ]
   set received-messages []
   ;; scale our display colour according to belief value (0 = red, 1 = green)
   set color rgb (255.0 * (1.0 - belief-value)) (255.0 * belief-value) 0
@@ -383,27 +421,27 @@ to decide-highest-single
 
 end
 
-to decide-highest-all
-  let maxweight 0
-  let maxvalue 0
-  if old-received-weight > 0[
-    let oldmessage []
-    set oldmessage lput old-received-weight oldmessage
-    set oldmessage lput old-belief-value oldmessage
-    set received-messages lput oldmessage received-messages
-  ]
-  
-  foreach received-messages [
-    let curritem item 0 (?)
-    if curritem > maxweight [
-      set maxweight curritem
-      set maxvalue item 1 (?)
-    ]
-  ]
-   
-  set received-weight maxweight
-  set belief-value maxvalue
-end
+;to decide-highest-all
+;  let maxweight 0
+;  let maxvalue 0
+;  if old-received-weight > 0[
+;    let oldmessage []
+;    set oldmessage lput old-received-weight oldmessage
+;    set oldmessage lput old-belief-value oldmessage
+;    set received-messages lput oldmessage received-messages
+;  ]
+;  
+;  foreach received-messages [
+;    let curritem item 0 (?)
+;    if curritem > maxweight [
+;      set maxweight curritem
+;      set maxvalue item 1 (?)
+;    ]
+;  ]
+;   
+;  set received-weight maxweight
+;  set belief-value maxvalue
+;end
 
 to decide-biased
 ;  let bias-sum 0
@@ -609,8 +647,8 @@ CHOOSER
 317
 Decision-Rule
 Decision-Rule
-"Random" "Average" "Mode" "Highest Single" "Highest Accumulated" "Weight Biased"
-4
+"Random" "Average" "Mode" "Highest Single" "Weight Biased"
+0
 
 PLOT
 872
@@ -643,9 +681,22 @@ Fun payoff functions:
 * give everyone a secret preference
 * payoff shared by folks who work out the truth
 
+OUTPUT
+-------
+
+When you run the code (with or without behavior space) you will be asked for a filename.  This file will have output the average fitness per event number.
+
 
 CHANGELOG
 -------
+
+06/24/10:
+To run through BehaviorSpace:
+- set time limit to 0
+- set stop condition to "event-number = X", with X meaning how many events you want to run
+- set final command to "file-close"
+- uncheck "Measure runs at every step"
+- Measure runs using these reporters: "allfitness" (this part is no longer necessary, you can leave empty
 
 ;;NOTE ABOUT CODE:
 ;; "TODO:" means something we need to do before we can run the model
@@ -950,6 +1001,30 @@ NetLogo 4.1
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
+<experiments>
+  <experiment name="experiment" repetitions="1" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <final>file-close</final>
+    <exitCondition>event-number = 100</exitCondition>
+    <metric>allfitness</metric>
+    <enumeratedValueSet variable="average-node-degree">
+      <value value="7"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="145"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Decision-Rule">
+      <value value="&quot;Random&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-observer-count">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-liar-count">
+      <value value="30"/>
+    </enumeratedValueSet>
+  </experiment>
+</experiments>
 @#$#@#$#@
 @#$#@#$#@
 default
