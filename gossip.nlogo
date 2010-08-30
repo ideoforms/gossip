@@ -21,6 +21,7 @@ globals
   endevent?
   outfilename
   event-number
+  target ;; turtle ID of current target
 ]
 
 ;; OUR AGENTS
@@ -30,15 +31,18 @@ turtles-own
   liar?               ;; if true, the turtle is a liar
   fitness             ;; accumulated fitness (or perhaps "wealth")
   my-decision-rule    ;; which decision rule to use when choosing among messages to propagate
+  target?             ;; if true, the turtle is the current gossip target
 
   ;; event-specific properties
   just-informed?      ;; if true, the turtle has been given the gossip in this turn
   has-belief?         ;; if true, the turtle has an opinion on the truth
-  belief-value        ;; value of held belief (0..1)
-  received-weight     ;; cumulative value for weight received from message
+  belief-value        ;; value of currently held belief (0..1)
+  received-weight     ;; cumulative value for weight received from message currently believed
+  sender-id           ;; id of turtle who sent the currently believed message
   old-received-weight ;; weight of message decided on previously (some decision rules need to know if it is new or not)
   old-belief-value    ;; purely for remembering previous belief value; this may end up needing to be a list
-  received-messages   ;; list: need to store message and its value for each time step
+  old-sender-id       ;; remembering id of previously believed belief
+  received-messages   ;; list of all messages and their weights, received the current time step
 ]
 
 ;; PROPERTY OF LINKS BETWEEN NODES
@@ -69,12 +73,6 @@ to setup
   set event-number 0
   set outfilename user-new-file
   file-open outfilename
-end
-
-;; set up some turtles to be observers of a particular gossip-worthy event
-to start-gossip
-  ask n-of initial-observer-count turtles
-    [ become-informed 1.0 1.0 ]
 end
 
 ;; set up all nodes, including initializing their agent values
@@ -108,6 +106,36 @@ to setup-spatially-clustered-network
   ]
 end
 
+;; set up some turtles to be observers of a particular gossip-worthy event
+;; set up who is the target of the gossip
+to start-gossip
+  ask n-of initial-observer-count turtles
+    [ become-informed 1.0 1.0 -1]
+  ;need to define a target but make sure its not one of the observers
+  choose-target
+end
+
+;need to define a target but make sure its not one of the observers
+to choose-target
+  ;choose who will be target, ensure they aren't an observer
+  let rand random number-of-nodes - 1 ;because turtles IDs start at zero
+  let belief? false
+  ask turtle rand [ set belief? has-belief?]
+  while [belief?] ; only way we know they are an observer, is they have a belief
+  [
+    set rand random number-of-nodes - 1
+  ]
+  
+  ;set target as target
+  set target rand 
+  ask turtle rand [
+    set target? true
+    set belief-value 1.0
+    set has-belief? true
+    set color [0 0 255]
+  ]
+end
+
 ; should be called before nodes are defined as observers
 to initialize
   set liar? false
@@ -125,9 +153,12 @@ to forget
   set just-informed? false
   set has-belief? false
   set belief-value 1.0
+  set sender-id -1
+  set target? false
   set received-messages []
   set old-received-weight 0.0
   set old-belief-value 0
+  set old-sender-id -1
   set color [255 255 255]
 end
 
@@ -159,14 +190,13 @@ to-report iterate
   if not gossip-setup-flag? [
     ; Set up a gossip event.
     ; forget any previous gossip
-    ;show "new gossip event"
     set event-number event-number + 1
     saveFitness
     ask turtles
     [ 
       forget 
     ]
-  
+    
     ; generate a new gossip event
     start-gossip
     set global-sent? true         ; need to be true so that first time through loop will work
@@ -182,12 +212,57 @@ to-report iterate
     report false
   ]
   [ ;If nothing happened we are in equilibrium so the chitchat round is over. clean up
-    update-fitnesses
-    set gossip-setup-flag? false;
-    report true         ; report event ended in case we wish to stop here
-    set endevent? true
-    show "end"
+      update-fitnesses
+      set gossip-setup-flag? false;
+      
+      if spread-truth [
+        target-share-truth   
+      ]
+      
+      report true         ; report event ended in case we wish to stop here
+      set endevent? true
+      show "end"
   ]
+end
+
+;target tells its neighbors what the truth is
+;neighbors then adjust their connection to the person who told them the gossip
+to target-share-truth
+  ask turtle target [
+     ask link-neighbors [
+       receive-truth [belief-value] of myself
+     ]
+  ]
+end
+
+; called by target-share-truth, turtle this is called on is being given the truth
+to receive-truth [true-belief]
+  if sender-id >= 0 and has-belief? [ ;true-belief != belief-value and 
+    ;get current weight
+    let old-weight [weight] of link-with turtle sender-id
+    let new-weight old-weight
+    
+    ;calculate new weight
+    ifelse true-belief != belief-value [
+      set new-weight old-weight * (1 - (true-belief - belief-value) / 2)
+    ]
+    [
+      set new-weight old-weight + (1 - old-weight) / 4
+    ]
+    ;if new weight is 0, remove the link
+    ;otherwise, set the link weight to the new link weight
+    ifelse new-weight = 0 [
+      ask link who sender-id [die]
+    ]
+    [
+      ask link who sender-id [
+        set weight new-weight
+        set thickness weight * 0.5
+        set color [0 0 255]
+      ]
+    ]
+  ]
+
 end
 
 ; used during initialization only
@@ -197,18 +272,19 @@ to become-liar
 end
 
 ; used when you receive a message
-;;CHANGE: only add this message and weight to your list of recieved messages and weights
-;;decision rules won't be used until you have recieved all you will receive this time step (see spread-gossip procedure)
-to become-informed [ pass-value pass-weight ];; turtle procedure
-  set just-informed? true 
-  set has-belief? true
-  let topass []
-  set topass lput pass-weight topass
-  ifelse pass-value < 0
-  [ set topass lput 0 topass]
-  [ set topass lput pass-value topass]
-  set received-messages lput topass received-messages
-  
+; only add this message and weight to your list of recieved messages and weights
+to become-informed [ pass-value pass-weight pass-id];; turtle procedure
+  if not target? [
+    set just-informed? true 
+    set has-belief? true
+    let topass []
+    set topass lput pass-weight topass
+    ifelse pass-value < 0
+    [ set topass lput 0 topass]
+    [ set topass lput pass-value topass]
+    set topass lput pass-id topass
+    set received-messages lput topass received-messages
+  ]
 end
 
 ; all turtles with messages will send them to neighbors based on the weight and threshold
@@ -218,6 +294,7 @@ to spread-gossip
   set global-sent? false ; initialize to false at beginning of each tick
   ask turtles with [just-informed?]
     [ 
+      let id who
       decide ; choose which received message is the one to propagate
       ask link-neighbors
       [
@@ -228,16 +305,15 @@ to spread-gossip
         ; if the weight shows that we should send the message based on using it as a probability
         ; and the weight is also above the threshold of when to no longer send,
         ; send to the neighbor (truth value based on state as liar) 
-        if send-threshold < (this-weight)
+        ;let rand random-float 1.0
+        if send-threshold < (this-weight) ;and rand < this-weight
         [
           set global-sent? true ; set to true so globally we know at least 1 message was propagated
           ; send your weighted message as either true or false based on liar
           ; TODO: this will change based on truth table
           ifelse ([liar?] of myself)
-            ;[ become-informed [1.0 - belief-value] of myself this-weight]
-            ;[ become-informed [belief-value] of myself this-weight]
-            [ become-informed [(belief-value - liardecrease)] of myself this-weight]
-            [ become-informed [belief-value] of myself this-weight]
+            [ become-informed ([belief-value] of myself - liardecrease) this-weight id]
+            [ become-informed [belief-value] of myself this-weight id]
         ]
       ]
       set just-informed? false; since has sent message, don't want to resend next time
@@ -330,29 +406,32 @@ end
 
 ; used each time step.  There must be a better way to do this.
 to decide
+
   ;remember most recent history
   if received-weight > 0[
     set old-received-weight received-weight
     set old-belief-value belief-value
+    set old-sender-id sender-id
   ]
   ;use appropriate decision function
   ifelse my-decision-rule = 1 [
     decide-mode
   ]
   [ ifelse my-decision-rule = 2[
-      decide-random
-    ]
-    [ ifelse my-decision-rule = 3[
-        decide-average
-      ]
-      [ ifelse my-decision-rule = 4 [
-          decide-highest-single
-        ]
-        [ decide-biased
-           ]
-          ]
-        ]
-      ]
+    decide-random
+  ]
+  [ ifelse my-decision-rule = 3[
+    decide-average
+  ]
+  [ ifelse my-decision-rule = 4 [
+    decide-highest-single
+  ]
+  [ decide-biased
+  ]
+  ]
+  ]
+  ]
+
   set received-messages []
   ;; scale our display colour according to belief value (0 = red, 1 = green)
   set color rgb (255.0 * (1.0 - belief-value)) (255.0 * belief-value) 0
@@ -365,13 +444,15 @@ to decide-random
       let oldmessage []
       set oldmessage lput old-received-weight oldmessage
       set oldmessage lput old-belief-value oldmessage
+      set oldmessage lput old-sender-id oldmessage
       set received-messages lput oldmessage received-messages
       set mysize mysize + 1
     ]
     ;set new belief and value
-    let choice random mysize
+    let choice random mysize ;- 1
     set received-weight item 0 (item choice received-messages)
     set belief-value item 1 (item choice received-messages)
+    set sender-id item 2 (item choice received-messages)
   ]  
 end
 
@@ -382,6 +463,7 @@ to decide-average
       let oldmessage []
       set oldmessage lput old-received-weight oldmessage
       set oldmessage lput old-belief-value oldmessage
+      set oldmessage lput old-sender-id oldmessage
       set received-messages lput oldmessage received-messages
     ]
     foreach received-messages [
@@ -394,9 +476,18 @@ to decide-average
    
     set received-weight total-weight
     set belief-value total-value
+    set sender-id item 2 (item 0 received-messages)
 end
 
 to decide-mode
+  if old-received-weight > 0[
+    let oldmessage []
+    set oldmessage lput old-received-weight oldmessage
+    set oldmessage lput old-belief-value oldmessage
+    set oldmessage lput old-sender-id oldmessage
+    set received-messages lput oldmessage received-messages
+  ]
+    
   let valuelist []
   foreach received-messages [
     set valuelist lput item 1 (?) valuelist
@@ -413,6 +504,7 @@ to decide-mode
   foreach received-messages [
     if item 1 ? = belief-value [
       set received-weight item 0 ?
+      set sender-id item 2 ?
     ]
   ]
 end
@@ -443,33 +535,53 @@ end
 ;  set belief-value maxvalue
 ;end
 
+; more likely to decide on a message that has a higher weight
+; information is chosen probabilistically based on weight
 to decide-biased
-;  let bias-sum 0
-;  let bias-list []
-;  if old-received-weight > 0[
-;    let oldmessage []
-;    set oldmessage lput old-received-weight oldmessage
-;    set oldmessage lput old-belief-value oldmessage
-;    set received-messages lput oldmessage received-messages
-;  ]
-;  
-;  ;find normalization constant
-;  foreach received-messages [
-;   set bias-sum bias-sum +  (item 0 (item ? received-messages))
-;  ]
-;   
-;  ;normalize everything
-;  foreach received-messages [
-;    let b (item 1 (item ? received-messages) * bias-sum)
-;    set bias-list lput [b ?] bias-list
-;  ]
-;  sort bias-list
-;  let rand random-float 1
-;  
-;  set received-weight maxweight
-;  set belief-value maxvalue
-;  set received-messages [] 
+  let bias-sum 0
+  if old-received-weight > 0[
+    let oldmessage []
+    set oldmessage lput old-received-weight oldmessage
+    set oldmessage lput old-belief-value oldmessage
+    set oldmessage lput old-sender-id oldmessage
+    set received-messages lput oldmessage received-messages
+  ]
   
+  ;find sum for random number generation
+  foreach received-messages [
+   set bias-sum bias-sum +  (item 0 (?))
+  ]
+   
+  ;sort the list of received messages
+  set received-messages sort-by [(item 0 (?1)) < (item 0 (?2))] received-messages
+  
+  ;create new list of added values for proper choosing
+  let choose-list []
+  let last-weight 0
+  foreach received-messages [
+    let newitem []
+    set newitem lput (item 0 ? + last-weight) newitem ;what we'll use for choosing
+    set newitem lput (item 0 ?) newitem
+    set newitem lput (item 1 ?) newitem
+    set newitem lput (item 2 ?) newitem
+    set choose-list lput newitem choose-list
+    set last-weight item 0 ?
+  ]
+  
+  ;choose random number
+  let rand random-float bias-sum
+  
+  ;iterate through list to determine which was chosen
+  ;choose-list has each message as: [choosing value] [received-weight] [belief-value]
+  ;therefore item numbers are 1 larger than are usually used on message lists
+  foreach choose-list [
+   if rand < item 0 ?[
+     set received-weight item 1 ?
+     set belief-value item 2 ?
+     set sender-id item 3 ?
+     set rand bias-sum + 1 ;guarantees only the first time the equality is true it will count
+   ] 
+  ]
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -531,10 +643,10 @@ NIL
 NIL
 
 PLOT
-5
-325
-260
-489
+4
+375
+259
+539
 believers
 time
 % of nodes
@@ -667,6 +779,17 @@ false
 PENS
 "default" 0.1 1 -16777216 true
 "fitness-pen" 0.1 1 -16777216 true
+
+SWITCH
+28
+325
+154
+358
+spread-truth
+spread-truth
+0
+1
+-1000
 
 @#$#@#$#@
 GOSSIP
