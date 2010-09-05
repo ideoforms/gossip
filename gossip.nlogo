@@ -68,7 +68,7 @@ to setup
   ask n-of initial-liar-count turtles
     [ become-liar ]
   update-plot
-  set liardecrease 0.1
+  set liardecrease 0.75
   set endevent? false
   set event-number 0
   set outfilename user-new-file
@@ -118,13 +118,20 @@ end
 ;need to define a target but make sure its not one of the observers
 to choose-target
   ;choose who will be target, ensure they aren't an observer
-  let rand random number-of-nodes - 1 ;because turtles IDs start at zero
+  let rand -1
+  while [rand < 0]
+  [
+    set rand random number-of-nodes - 1; because turtle IDs start at zero
+  ]
   let belief? false
   ask turtle rand [ set belief? has-belief?]
   while [belief?] ; only way we know they are an observer, is they have a belief
-  [
+    [
     set rand random number-of-nodes - 1
+    if rand >= 0 [
+      ask turtle rand [set belief? has-belief?]
   ]
+    ]
   
   ;set target as target
   set target rand 
@@ -237,13 +244,13 @@ end
 
 ; called by target-share-truth, turtle this is called on is being given the truth
 to receive-truth [true-belief]
-  if sender-id >= 0 and has-belief? [ ;true-belief != belief-value and 
+  if sender-id >= 0 and has-belief? [ 
     ;get current weight
     let old-weight [weight] of link-with turtle sender-id
     let new-weight old-weight
     
     ;calculate new weight
-    ifelse true-belief != belief-value [
+    ifelse (true-belief - belief-value >= 0.2) [
       set new-weight old-weight * (1 - (true-belief - belief-value) / 2)
     ]
     [
@@ -312,7 +319,7 @@ to spread-gossip
           ; send your weighted message as either true or false based on liar
           ; TODO: this will change based on truth table
           ifelse ([liar?] of myself)
-            [ become-informed ([belief-value] of myself - liardecrease) this-weight id]
+            [ become-informed ([belief-value] of myself * liardecrease) this-weight id]
             [ become-informed [belief-value] of myself this-weight id]
         ]
       ]
@@ -394,14 +401,10 @@ to set-decision-rule
     [ ifelse Decision-Rule = "Average"[
       set my-decision-rule 3
       ]
-      [ ifelse Decision-Rule = "Highest Single" [
-        set my-decision-rule 4
-        ]
-        [ set my-decision-rule 5
-           ]
-          ]
-        ]
+      [  set my-decision-rule 4
       ]
+     ]
+    ]
 end
 
 ; used each time step.  There must be a better way to do this.
@@ -418,18 +421,14 @@ to decide
     decide-mode
   ]
   [ ifelse my-decision-rule = 2[
-    decide-random
-  ]
-  [ ifelse my-decision-rule = 3[
-    decide-average
-  ]
-  [ ifelse my-decision-rule = 4 [
-    decide-highest-single
-  ]
-  [ decide-biased
-  ]
-  ]
-  ]
+      decide-random
+    ]
+    [ ifelse my-decision-rule = 3[
+        decide-average
+      ]
+      [ decide-biased
+      ]
+    ]
   ]
 
   set received-messages []
@@ -508,32 +507,6 @@ to decide-mode
     ]
   ]
 end
-
-to decide-highest-single
-
-end
-
-;to decide-highest-all
-;  let maxweight 0
-;  let maxvalue 0
-;  if old-received-weight > 0[
-;    let oldmessage []
-;    set oldmessage lput old-received-weight oldmessage
-;    set oldmessage lput old-belief-value oldmessage
-;    set received-messages lput oldmessage received-messages
-;  ]
-;  
-;  foreach received-messages [
-;    let curritem item 0 (?)
-;    if curritem > maxweight [
-;      set maxweight curritem
-;      set maxvalue item 1 (?)
-;    ]
-;  ]
-;   
-;  set received-weight maxweight
-;  set belief-value maxvalue
-;end
 
 ; more likely to decide on a message that has a higher weight
 ; information is chosen probabilistically based on weight
@@ -759,8 +732,8 @@ CHOOSER
 317
 Decision-Rule
 Decision-Rule
-"Random" "Average" "Mode" "Highest Single" "Weight Biased"
-1
+"Random" "Average" "Mode" "Weight Biased"
+3
 
 PLOT
 872
@@ -1133,7 +1106,7 @@ NetLogo 4.1
 @#$#@#$#@
 @#$#@#$#@
 <experiments>
-  <experiment name="experiment" repetitions="1" runMetricsEveryStep="false">
+  <experiment name="experiment" repetitions="10" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
     <final>file-close</final>
