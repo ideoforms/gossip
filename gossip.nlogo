@@ -30,6 +30,7 @@ turtles-own
   ;; persistent properties
   liar?               ;; if true, the turtle is a liar
   fitness             ;; accumulated fitness (or perhaps "wealth")
+  fitnessList         ;; a list of all previous fitness (belief) values preceded by their event number, for evaluating outside NetLogo
   my-decision-rule    ;; which decision rule to use when choosing among messages to propagate
   target?             ;; if true, the turtle is the current gossip target
 
@@ -144,11 +145,13 @@ to choose-target
 end
 
 ; should be called before nodes are defined as observers
+; ONLY called in initial setup, not between events
 to initialize
   set liar? false
  ; set received-weight 0.0
   set send-threshold 0.5
   set fitness -1.0
+  set fitnessList []
   forget
   set gossip-setup-flag? false
   set-decision-rule
@@ -172,7 +175,6 @@ end
 ; Start or continue an endless gossip cycle (should be a forever button)
 ; runs the repeated event/gossip cycles until the user sets repeat-events? to off.
 ; represents the round of propagation of a single scandalous 'event' and all the gossip involved
-; TODO: calculate fitness after each gossip cycle
 to go
   let event-finished? iterate
 end
@@ -346,7 +348,13 @@ end
 to update-fitnesses
   ask turtles with [has-belief?] [
     ;set fitness (fitness + (truthiness belief-value))
-    set fitness (truthiness belief-value)
+    let newfitness (truthiness belief-value)
+    let newitem []
+    set newitem lput event-number newitem
+    set newitem lput newfitness newitem
+    set fitnessList lput newitem fitnessList
+    let listSize length fitnessList
+    set fitness (((fitness * (listSize - 1)) + newfitness) / listSize)
     ;set size (fitness * 0.1 + 1.0)
     set size (fitness * 2.0 + 0.1)
   ]
@@ -382,6 +390,36 @@ to saveFitness
   file-type event-number
   file-type " "
   file-print total
+end
+
+to saveFitnessList
+  ;write to a file WITH event numbers
+  let outfilename2 word outfilename "-list-numbers"
+  file-open outfilename2
+  ask turtles[
+   file-type who
+   foreach fitnessList [
+    file-type " "
+    file-type item 0 ?
+    file-type " "
+    file-type item 1 ? 
+   ] 
+   file-print ""
+  ]
+  file-close
+  
+  ;write to a file WITHOUT event numbers
+  set outfilename2 word outfilename "-list"
+  file-open outfilename2
+   ask turtles[
+   file-type who
+   foreach fitnessList [
+    file-type " "
+    file-type item 1 ? 
+   ] 
+   file-print ""
+  ]
+   file-close
 end
 
 ; report the distance of an individual belief from truth. Easy when it's binary!
@@ -733,7 +771,7 @@ CHOOSER
 Decision-Rule
 Decision-Rule
 "Random" "Average" "Mode" "Weight Biased"
-3
+0
 
 PLOT
 872
@@ -1109,8 +1147,32 @@ NetLogo 4.1
   <experiment name="experiment" repetitions="10" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
-    <final>file-close</final>
+    <final>file-close
+saveFitnessList</final>
     <exitCondition>event-number = 100</exitCondition>
+    <metric>allfitness</metric>
+    <enumeratedValueSet variable="average-node-degree">
+      <value value="7"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="145"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Decision-Rule">
+      <value value="&quot;Random&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-observer-count">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-liar-count">
+      <value value="30"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="experiment-091910" repetitions="1" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <final>file-close
+saveFitnessList</final>
+    <exitCondition>event-number = 5</exitCondition>
     <metric>allfitness</metric>
     <enumeratedValueSet variable="average-node-degree">
       <value value="7"/>
