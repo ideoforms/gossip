@@ -22,6 +22,10 @@ globals
   outfilename
   event-number
   target ;; turtle ID of current target
+  ;;below are for keeping track of stats on truth sharing
+  initial-link-density
+  final-link-density
+  number-link-changes
 ]
 
 ;; OUR AGENTS
@@ -68,10 +72,12 @@ to setup
   setup-spatially-clustered-network
   ask n-of initial-liar-count turtles
     [ become-liar ]
+  calculate-avg-link-weight 0
   update-plot
   set liardecrease 0.75
   set endevent? false
   set event-number 0
+  set number-link-changes 0
   set outfilename user-new-file
   file-open outfilename
 end
@@ -105,6 +111,27 @@ to setup-spatially-clustered-network
   [
     layout-spring turtles links 0.3 (world-width / (sqrt number-of-nodes)) 1
   ]
+end
+
+;; calculates average weight of links 
+;; timing: 0 means initial, 1 means final
+to calculate-avg-link-weight [timing]
+  let counts 0
+  let summing 0
+  ask turtles [
+    ask link-neighbors
+      [
+        ; first find the weight of the link
+        let new-weight [weight] of link-with myself
+        set summing summing + new-weight
+        set counts counts + 1
+      ]
+  ]
+  
+  ifelse(timing = 0)[
+    set initial-link-density summing / counts
+  ]
+  [ set final-link-density summing / counts ]
 end
 
 ;; set up some turtles to be observers of a particular gossip-worthy event
@@ -270,6 +297,7 @@ to receive-truth [true-belief]
         set color [0 0 255]
       ]
     ]
+    set number-link-changes number-link-changes + 1 ;keep track of how many times this is done
   ]
 
 end
@@ -419,6 +447,16 @@ to saveFitnessList
    ] 
    file-print ""
   ]
+   file-close
+end
+
+to saveLinkWeight
+   calculate-avg-link-weight 1
+   let outfilename3 word outfilename "-link-weight"
+   file-open outfilename3
+   file-print initial-link-density
+   file-print final-link-density
+   file-print number-link-changes
    file-close
 end
 
@@ -771,7 +809,7 @@ CHOOSER
 Decision-Rule
 Decision-Rule
 "Random" "Average" "Mode" "Weight Biased"
-0
+1
 
 PLOT
 872
@@ -1171,8 +1209,9 @@ saveFitnessList</final>
     <setup>setup</setup>
     <go>go</go>
     <final>file-close
-saveFitnessList</final>
-    <exitCondition>event-number = 5</exitCondition>
+saveFitnessList
+saveLinkWeight</final>
+    <exitCondition>event-number = 20</exitCondition>
     <metric>allfitness</metric>
     <enumeratedValueSet variable="average-node-degree">
       <value value="7"/>
@@ -1181,7 +1220,31 @@ saveFitnessList</final>
       <value value="145"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="Decision-Rule">
-      <value value="&quot;Random&quot;"/>
+      <value value="&quot;Average&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-observer-count">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-liar-count">
+      <value value="30"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="experiment-nov2010" repetitions="1" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <final>file-close
+saveFitnessList
+saveLinkWeight</final>
+    <exitCondition>event-number = 100</exitCondition>
+    <metric>allfitness</metric>
+    <enumeratedValueSet variable="average-node-degree">
+      <value value="7"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="145"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Decision-Rule">
+      <value value="&quot;Average&quot;"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="initial-observer-count">
       <value value="3"/>
