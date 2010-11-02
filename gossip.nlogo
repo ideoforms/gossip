@@ -1229,7 +1229,7 @@ saveLinkWeight</final>
       <value value="30"/>
     </enumeratedValueSet>
   </experiment>
-  <experiment name="experiment-nov2010" repetitions="1" runMetricsEveryStep="false">
+  <experiment name="experiment-nov2010-avg" repetitions="30" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
     <final>file-close
@@ -1245,6 +1245,78 @@ saveLinkWeight</final>
     </enumeratedValueSet>
     <enumeratedValueSet variable="Decision-Rule">
       <value value="&quot;Average&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-observer-count">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-liar-count">
+      <value value="30"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="experiment-nov2010-random" repetitions="30" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <final>file-close
+saveFitnessList
+saveLinkWeight</final>
+    <exitCondition>event-number = 100</exitCondition>
+    <metric>allfitness</metric>
+    <enumeratedValueSet variable="average-node-degree">
+      <value value="7"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="145"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Decision-Rule">
+      <value value="&quot;Random&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-observer-count">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-liar-count">
+      <value value="30"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="experiment-nov2010-biased" repetitions="30" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <final>file-close
+saveFitnessList
+saveLinkWeight</final>
+    <exitCondition>event-number = 100</exitCondition>
+    <metric>allfitness</metric>
+    <enumeratedValueSet variable="average-node-degree">
+      <value value="7"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="145"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Decision-Rule">
+      <value value="&quot;Weight Biased&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-observer-count">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-liar-count">
+      <value value="30"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="experiment-nov2010-mode" repetitions="30" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <final>file-close
+saveFitnessList
+saveLinkWeight</final>
+    <exitCondition>event-number = 100</exitCondition>
+    <metric>allfitness</metric>
+    <enumeratedValueSet variable="average-node-degree">
+      <value value="7"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="145"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Decision-Rule">
+      <value value="&quot;Weight Biased&quot;"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="initial-observer-count">
       <value value="3"/>
